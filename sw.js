@@ -1,6 +1,6 @@
 // Service worker do Prumo: guarda o app no aparelho para abrir sem internet.
 // Ao mudar qualquer arquivo do app, aumente o número da versão abaixo.
-const VERSION = 'prumo-v1';
+const VERSION = 'prumo-v2';
 const FILES = [
   './',
   './index.html',
@@ -25,9 +25,18 @@ self.addEventListener('activate', (e) => {
   );
 });
 
+// Rede primeiro (pega sempre a versão nova quando há internet); sem internet, usa o que está guardado.
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
   e.respondWith(
-    caches.match(e.request).then((hit) => hit || fetch(e.request).catch(() => caches.match('./index.html')))
+    fetch(e.request)
+      .then((res) => {
+        if (res && res.ok && new URL(e.request.url).origin === location.origin) {
+          const copy = res.clone();
+          caches.open(VERSION).then((c) => c.put(e.request, copy));
+        }
+        return res;
+      })
+      .catch(() => caches.match(e.request).then((hit) => hit || caches.match('./index.html')))
   );
 });

@@ -30,6 +30,7 @@
   let state = load();
   let tab = 'hoje';
   let draft = null; // treino em edição
+  let screen = null; // subtela do Histórico ('backup')
 
   // ---------- formatação ----------
   const fmtDate = (ts) => {
@@ -79,44 +80,72 @@
     try { if (navigator.vibrate) navigator.vibrate([200, 100, 200]); } catch (e) { /* sem vibração */ }
   }
 
+  function fmtElapsed(ms) {
+    const s = Math.max(0, Math.floor(ms / 1000));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const ss = String(s % 60).padStart(2, '0');
+    return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
+  }
+
+  // Barra fixa no rodapé: mostra o tempo do treino e, durante o descanso, a contagem regressiva.
+  let dockMode = '';
+  function setDock(mode) {
+    if (mode === dockMode) return;
+    dockMode = mode;
+    const d = $('#dock');
+    if (mode === 'none') {
+      d.hidden = true;
+      d.className = '';
+      d.innerHTML = '';
+    } else if (mode === 'rest') {
+      d.hidden = false;
+      d.className = 'rest';
+      d.innerHTML =
+        '<div><div class="lbl">Descanso</div><div class="time" id="dockTime"></div></div>' +
+        '<div class="row"><button data-act="rest-add">+15s</button><button data-act="rest-skip">Pular</button></div>';
+    } else {
+      d.hidden = false;
+      d.className = '';
+      d.innerHTML = '<div><div class="lbl">Treino em andamento</div><div class="time" id="dockTime"></div></div>';
+    }
+  }
+
   function startRest(sec) {
     if (!sec || sec <= 0) return;
     restEnd = Date.now() + sec * 1000;
     restDoneUntil = 0;
-    const r = $('#rest');
-    r.hidden = false;
-    r.innerHTML =
-      '<div><div style="font-size:12px;font-weight:600">Descanso</div><div class="time" id="restTime"></div></div>' +
-      '<div class="row"><button data-act="rest-add">+15s</button><button data-act="rest-skip">Pular</button></div>';
     tick();
   }
   function stopRest() {
     restEnd = 0;
     restDoneUntil = 0;
-    const r = $('#rest');
-    r.hidden = true;
-    r.innerHTML = '';
+    tick();
   }
 
   function tick() {
-    const el = $('#elapsed');
-    if (el && state.active) el.textContent = 'Em andamento · ' + fmtDur(Date.now() - state.active.startedAt);
-
-    const rt = $('#restTime');
-    if (restEnd && rt) {
-      const left = Math.ceil((restEnd - Date.now()) / 1000);
-      if (left <= 0) {
-        restEnd = 0;
-        restDoneUntil = Date.now() + 4000;
-        rt.textContent = 'Pronto!';
-        beep();
-        buzz();
-      } else {
-        rt.textContent = fmtClock(left);
-      }
-    } else if (restDoneUntil && Date.now() > restDoneUntil) {
-      stopRest();
+    if (!state.active) {
+      restEnd = 0;
+      restDoneUntil = 0;
+      return setDock('none');
     }
+    const now = Date.now();
+    if (restEnd && restEnd - now <= 0) {
+      restEnd = 0;
+      restDoneUntil = now + 4000;
+      beep();
+      buzz();
+    }
+    if (restDoneUntil && now > restDoneUntil) restDoneUntil = 0;
+    const resting = restEnd > 0 || restDoneUntil > 0;
+    setDock(resting ? 'rest' : 'elapsed');
+    const t = $('#dockTime');
+    if (!t) return;
+    t.textContent = resting
+      ? restEnd
+        ? fmtClock(Math.ceil((restEnd - now) / 1000))
+        : 'Pronto!'
+      : fmtElapsed(now - state.active.startedAt);
   }
   setInterval(tick, 1000);
   document.addEventListener('visibilitychange', tick);
@@ -222,8 +251,7 @@
   function viewSession() {
     const a = state.active;
     return (
-      `<div style="margin-top:8px"><h2 style="margin:8px 0 2px">${esc(a.name)}</h2><div class="muted" id="elapsed"></div></div>` +
-      '<div style="height:10px"></div>' +
+      `<h2 style="margin:8px 0 12px">${esc(a.name)}</h2>` +
       a.entries
         .map(
           (e, ei) =>
@@ -292,6 +320,7 @@
   }
 
   function viewHistorico() {
+    if (screen === 'backup') return viewBackup();
     const list = state.sessions.length
       ? state.sessions
           .map((s) => {
@@ -319,12 +348,22 @@
       : '<div class="empty">Nenhum treino finalizado ainda.</div>';
 
     return (
-      '<h2 style="margin:8px 0">Histórico</h2>' +
-      list +
-      '<h2>Backup</h2><div class="card"><p class="muted" style="margin-top:0">Seus dados ficam só neste aparelho. ' +
-      'Exporte uma cópia de vez em quando para não perder o histórico.</p>' +
-      '<div class="row"><button class="grow" data-act="export">Exportar</button>' +
-      '<button class="grow" data-act="import">Importar</button></div>' +
+      '<div class="row between"><h2 style="margin:8px 0">Histórico</h2>' +
+      '<button class="small" data-act="open-backup">Backup</button></div>' +
+      list
+    );
+  }
+
+  function viewBackup() {
+    return (
+      '<button class="ghost small" style="margin-top:8px" data-act="close-backup">← Voltar</button>' +
+      '<h2>Backup</h2>' +
+      '<div class="card"><p class="muted" style="margin-top:0">Seus dados ficam só neste aparelho: ' +
+      `${state.workouts.length} treino(s) e ${state.sessions.length} sessão(ões) no histórico. ` +
+      'Exporte uma cópia de vez em quando para não perder nada.</p>' +
+      '<button class="primary block" data-act="export">Exportar backup</button>' +
+      '<button class="block" style="margin-top:8px" data-act="import">Importar backup</button>' +
+      '<p class="muted" style="margin-bottom:0">Importar substitui os dados que estão no aparelho.</p>' +
       '<input type="file" id="importFile" accept="application/json,.json" hidden></div>'
     );
   }
@@ -333,7 +372,7 @@
 
   function render() {
     document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
-    $('#sub').textContent = TITLES[tab];
+    $('#sub').textContent = tab === 'historico' && screen === 'backup' ? 'Backup' : TITLES[tab];
     $('#view').innerHTML = tab === 'hoje' ? viewHoje() : tab === 'treinos' ? viewTreinos() : viewHistorico();
     tick();
   }
@@ -386,6 +425,7 @@
     const t = ev.target.closest('[data-tab]');
     if (t) {
       tab = t.dataset.tab;
+      screen = null;
       render();
       return;
     }
@@ -467,6 +507,12 @@
           render();
         }
         return;
+      case 'open-backup':
+        screen = 'backup';
+        return render();
+      case 'close-backup':
+        screen = null;
+        return render();
       case 'export': return exportData();
       case 'import': return $('#importFile').click();
     }
@@ -490,6 +536,9 @@
       ev.target.value = '';
     }
   });
+
+  // sem zoom por pinça (o toque duplo é bloqueado no CSS com touch-action)
+  ['gesturestart', 'gesturechange'].forEach((n) => document.addEventListener(n, (e) => e.preventDefault()));
 
   // ---------- início ----------
   try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { /* ok */ }
