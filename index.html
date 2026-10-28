@@ -16,16 +16,20 @@
 </head>
 <body>
 <header id="top">
+  <button id="back" data-act="back" aria-label="Voltar" hidden>‹</button>
   <h1>Prumo</h1>
-  <span id="sub">Treino</span>
+  <span id="sub"></span>
 </header>
 <main id="view"></main>
 <div id="dock" hidden></div>
-<nav id="tabs">
-  <button data-tab="hoje" class="on">Hoje</button>
-  <button data-tab="treinos">Treinos</button>
-  <button data-tab="historico">Histórico</button>
-</nav>
+<nav id="tabs" hidden></nav>
+<script src="core.js"></script>
+<script src="treino.js"></script>
+<script src="lembretes.js"></script>
+<script src="alimentacao.js"></script>
+<script src="tarefas.js"></script>
+<script src="notas.js"></script>
+<script src="despesas.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
