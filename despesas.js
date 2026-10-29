@@ -1,7 +1,8 @@
 // Prumo — controle financeiro de despesas e receitas
 // Cada lançamento já guarda "source" e "externalId", para no futuro receber lançamentos vindos de bancos
 // sem mudar a estrutura (valores em centavos, para não ter erro de arredondamento).
-// Lançamentos recorrentes: um modelo (recurring) gera os lançamentos sozinho a cada período.
+// Lançamentos recorrentes: um modelo (recurring) gera os lançamentos do mês já no 1º dia do mês,
+// cada um com a data de vencimento própria; o valor de cada lançamento pode ser alterado depois.
 (() => {
   'use strict';
   const P = window.Prumo;
@@ -19,6 +20,9 @@
 
   let month = P.dayStr().slice(0, 7); // 'AAAA-MM'
   let form = null; // { kind, amount, desc, cat, date, rec, period }
+  let edit = null; // lançamento em edição: { id, amount, desc, date, future }
+  let recEdit = null; // modelo recorrente em edição de valor: { id, amount }
+  const centsToStr = (c) => (c / 100).toFixed(2).replace('.', ',');
 
   const blank = () => ({
     kind: 'out',
@@ -66,13 +70,14 @@
     return P.dayStr(dt);
   }
 
-  // cria os lançamentos que já venceram (até hoje); roda sempre que a tela de despesas é montada
+  // cria os lançamentos do mês atual (e de meses anteriores que faltarem) já no 1º dia do mês,
+  // com a data de vencimento original; roda sempre que a tela de despesas é montada
   function materialize() {
-    const today = P.dayStr();
+    const thisMonth = P.dayStr().slice(0, 7);
     let changed = false;
     st().recurring.forEach((r) => {
       let guard = 0;
-      while (r.next <= today && guard++ < 800) {
+      while (r.next.slice(0, 7) <= thisMonth && guard++ < 800) {
         st().expenses.push({
           id: uid(),
           kind: r.kind,
@@ -96,6 +101,40 @@
   const sum = (arr, kind) => arr.filter((e) => e.kind === kind).reduce((n, e) => n + e.amount, 0);
 
   // ---------- telas ----------
+  function entryCard(e) {
+    const future = e.date > P.dayStr();
+    return (
+      '<div class="card"><div class="row">' +
+      `<div class="grow"><div>${esc(e.desc || e.cat || '')}</div>` +
+      `<div class="muted">${esc(e.date.slice(8, 10))}/${esc(e.date.slice(5, 7))} · ${esc(e.cat || '')}${e.recurringId ? ' · recorrente' : ''}${future ? ' · a vencer' : ''}</div></div>` +
+      `<span class="amt ${e.kind === 'in' ? 'pos' : ''}">${e.kind === 'in' ? '+' : '−'} ${P.brl(e.amount)}</span></div>` +
+      '<div class="row" style="margin-top:10px">' +
+      `<button class="small" data-act="d-edit" data-id="${esc(e.id)}">Editar</button>` +
+      `<button class="danger small" data-act="d-del" data-id="${esc(e.id)}">Excluir</button></div></div>`
+    );
+  }
+
+  function editCard(e) {
+    const tpl = e.recurringId && st().recurring.some((r) => r.id === e.recurringId);
+    return (
+      '<div class="card live"><b>Editar lançamento</b>' +
+      '<label class="f">Valor (R$)</label>' +
+      `<input type="text" inputmode="decimal" data-in="d-e-amount" value="${esc(edit.amount)}">` +
+      '<label class="f">Descrição</label>' +
+      `<input type="text" data-in="d-e-desc" value="${esc(edit.desc)}">` +
+      '<label class="f">Data</label>' +
+      `<input type="date" data-in="d-e-date" value="${esc(edit.date)}">` +
+      (tpl
+        ? '<label class="f">Este lançamento é recorrente</label>' +
+          '<div class="row">' +
+          `<button class="opt${edit.future ? '' : ' on'}" data-act="d-efuture" data-v="0">Só este</button>` +
+          `<button class="opt${edit.future ? ' on' : ''}" data-act="d-efuture" data-v="1">Este e os próximos</button></div>`
+        : '') +
+      '<div class="row" style="margin-top:14px"><button class="ghost grow" data-act="d-ecancel">Cancelar</button>' +
+      '<button class="primary grow" data-act="d-esave">Salvar</button></div></div>'
+    );
+  }
+
   function viewMes() {
     const list = ofMonth(month).sort((a, b) => b.date.localeCompare(a.date) || (b.createdAt || 0) - (a.createdAt || 0));
     const out = sum(list, 'out');
@@ -130,14 +169,7 @@
       '<h2>Lançamentos</h2>' +
       (list.length
         ? list
-            .map(
-              (e) =>
-                '<div class="card"><div class="row">' +
-                `<div class="grow"><div>${esc(e.desc || e.cat || '')}</div>` +
-                `<div class="muted">${esc(e.date.slice(8, 10))}/${esc(e.date.slice(5, 7))} · ${esc(e.cat || '')}${e.recurringId ? ' · recorrente' : ''}</div></div>` +
-                `<span class="amt ${e.kind === 'in' ? 'pos' : ''}">${e.kind === 'in' ? '+' : '−'} ${P.brl(e.amount)}</span>` +
-                `<button class="danger small" data-act="d-del" data-id="${esc(e.id)}" aria-label="Excluir lançamento">✕</button></div></div>`
-            )
+            .map((e) => (edit && edit.id === e.id ? editCard(e) : entryCard(e)))
             .join('')
         : '<div class="empty">Nenhum lançamento neste mês.</div>')
     );
@@ -170,7 +202,7 @@
           '<select data-in="d-period">' +
           PERIODS.map(([v, l]) => `<option value="${v}"${form.period === v ? ' selected' : ''}>${l}</option>`).join('') +
           '</select>' +
-          '<p class="muted" style="margin:8px 0 0">Os próximos lançamentos entram sozinhos nas datas seguintes, e você acompanha ou para na aba Recorrentes.</p>'
+          '<p class="muted" style="margin:8px 0 0">Os lançamentos de cada mês aparecem no dia 1º do mês, com a data de vencimento. Depois você pode editar o valor de cada um, ou alterar o valor dos próximos na aba Recorrentes.</p>'
         : '') +
       `<button class="primary block" style="margin-top:16px" data-act="d-save">${form.rec ? 'Criar recorrente' : 'Lançar'}</button>`
     );
@@ -186,10 +218,18 @@
               (r) =>
                 '<div class="card"><div class="row">' +
                 `<div class="grow"><div>${esc(r.desc || r.cat || '')}</div>` +
-                `<div class="muted">${esc(EVERY[r.period] || '')} · próximo em ${esc(brDate(r.next))}</div>` +
+                `<div class="muted">${esc(EVERY[r.period] || '')} · próximo em ${esc(brDate(r.next))} (aparece no dia 1º do mês)</div>` +
                 `<div class="muted">${esc(r.cat || '')}</div></div>` +
                 `<span class="amt ${r.kind === 'in' ? 'pos' : ''}">${r.kind === 'in' ? '+' : '−'} ${P.brl(r.amount)}</span></div>` +
-                `<button class="danger small" style="margin-top:10px" data-act="d-recdel" data-id="${esc(r.id)}">Parar recorrência</button></div>`
+                (recEdit && recEdit.id === r.id
+                  ? '<label class="f">Novo valor dos próximos lançamentos (R$)</label>' +
+                    `<input type="text" inputmode="decimal" data-in="d-r-amount" value="${esc(recEdit.amount)}">` +
+                    '<div class="row" style="margin-top:10px"><button class="ghost grow" data-act="d-reccancel">Cancelar</button>' +
+                    '<button class="primary grow" data-act="d-recsave">Salvar</button></div>'
+                  : '<div class="row" style="margin-top:10px">' +
+                    `<button class="small" data-act="d-recedit" data-id="${esc(r.id)}">Alterar valor</button>` +
+                    `<button class="danger small" data-act="d-recdel" data-id="${esc(r.id)}">Parar recorrência</button></div>`) +
+                '</div>'
             )
             .join('')
         : '<div class="empty">Nenhum lançamento recorrente.<br>Em Lançar, escolha o tipo Recorrente.</div>')
@@ -206,6 +246,8 @@
     ],
     onEnter() {
       form = null;
+      edit = null;
+      recEdit = null;
       month = P.dayStr().slice(0, 7);
     },
     status() {
@@ -219,8 +261,8 @@
     },
     act(name, el) {
       switch (name) {
-        case 'd-prev': month = shiftMonth(month, -1); P.render(); return true;
-        case 'd-next': month = shiftMonth(month, 1); P.render(); return true;
+        case 'd-prev': edit = null; month = shiftMonth(month, -1); P.render(); return true;
+        case 'd-next': edit = null; month = shiftMonth(month, 1); P.render(); return true;
         case 'd-kind':
           if (!form) form = blank();
           form.kind = el.dataset.k;
@@ -282,6 +324,54 @@
             P.render();
           }
           return true;
+        case 'd-edit': {
+          const e = st().expenses.find((x) => x.id === el.dataset.id);
+          if (e) edit = { id: e.id, amount: centsToStr(e.amount), desc: e.desc || '', date: e.date, future: false };
+          P.render();
+          return true;
+        }
+        case 'd-efuture': edit.future = el.dataset.v === '1'; P.render(); return true;
+        case 'd-ecancel': edit = null; P.render(); return true;
+        case 'd-esave': {
+          const e = edit && st().expenses.find((x) => x.id === edit.id);
+          if (!e) { edit = null; P.render(); return true; }
+          const amount = toCents(edit.amount);
+          if (amount <= 0) return alert('Informe um valor maior que zero.'), true;
+          if (!edit.date) return alert('Escolha a data.'), true;
+          const oldDate = e.date;
+          e.amount = amount;
+          e.desc = edit.desc.trim();
+          e.date = edit.date;
+          if (edit.future && e.recurringId) {
+            const r = st().recurring.find((x) => x.id === e.recurringId);
+            if (r) r.amount = amount;
+            st().expenses.forEach((x) => {
+              if (x.recurringId === e.recurringId && x.id !== e.id && x.date > oldDate) x.amount = amount;
+            });
+          }
+          month = e.date.slice(0, 7);
+          edit = null;
+          P.save();
+          P.render();
+          return true;
+        }
+        case 'd-recedit': {
+          const r = st().recurring.find((x) => x.id === el.dataset.id);
+          if (r) recEdit = { id: r.id, amount: centsToStr(r.amount) };
+          P.render();
+          return true;
+        }
+        case 'd-reccancel': recEdit = null; P.render(); return true;
+        case 'd-recsave': {
+          const r = recEdit && st().recurring.find((x) => x.id === recEdit.id);
+          const amount = toCents(recEdit && recEdit.amount);
+          if (amount <= 0) return alert('Informe um valor maior que zero.'), true;
+          if (r) r.amount = amount;
+          recEdit = null;
+          P.save();
+          P.render();
+          return true;
+        }
         case 'd-recdel':
           if (confirm('Parar esta recorrência? Os lançamentos que já entraram continuam no histórico.')) {
             st().recurring = st().recurring.filter((r) => r.id !== el.dataset.id);
@@ -294,7 +384,19 @@
     },
     input(el) {
       const k = el.dataset.in;
-      if (!k || !k.startsWith('d-') || !form) return false;
+      if (!k || !k.startsWith('d-')) return false;
+      if (k.startsWith('d-e-')) {
+        if (!edit) return false;
+        if (k === 'd-e-amount') edit.amount = el.value;
+        else if (k === 'd-e-desc') edit.desc = el.value;
+        else if (k === 'd-e-date') edit.date = el.value;
+        return true;
+      }
+      if (k === 'd-r-amount') {
+        if (recEdit) recEdit.amount = el.value;
+        return true;
+      }
+      if (!form) return false;
       if (k === 'd-amount') form.amount = el.value;
       else if (k === 'd-desc') form.desc = el.value;
       else if (k === 'd-cat') form.cat = el.value;
