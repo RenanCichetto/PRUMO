@@ -5,6 +5,7 @@
   const { esc, $ } = P;
 
   // ---------- tela inicial ----------
+  const DASH = ['treino', 'alimentacao', 'tarefas', 'despesas'];
   P.homeView = () => {
     const ids = P.order.filter((id) => P.state.modules[id]);
     const a = P.state.active;
@@ -14,6 +15,7 @@
         `<div class="card live"><div class="row between"><div><div class="muted">Treino em andamento</div><b>${esc(a.name)}</b></div>` +
         '<button class="primary small" data-act="open-mod" data-id="treino">Voltar ao treino</button></div></div>';
     }
+    try { h += P.dashboardHome(); } catch (e) { /* sem dashboard */ }
     if (!ids.length) {
       h += '<div class="empty">Nenhum módulo ativo. Toque em Módulos para escolher.</div>';
     } else {
@@ -23,7 +25,8 @@
           .map((id) => {
             const m = P.modules[id];
             let s = '';
-            try { s = m.status ? m.status() : ''; } catch (e) { s = ''; }
+            // os módulos que já aparecem no cartão "Hoje" não repetem o status no bloco
+            if (!DASH.includes(id)) { try { s = m.status ? m.status() : ''; } catch (e) { s = ''; } }
             return (
               `<button class="tile" data-act="open-mod" data-id="${id}"><span class="ico">${P.icon(id, 28)}</span>` +
               `<b>${esc(m.title)}</b><span class="muted">${esc(s)}</span></button>`

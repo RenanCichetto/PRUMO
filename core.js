@@ -63,6 +63,7 @@
     notes: [],
     expenses: [],
     recurring: [],
+    openingBalance: 0,
     expenseCats: ['Alimentação', 'Transporte', 'Moradia', 'Saúde', 'Lazer', 'Educação', 'Compras', 'Contas', 'Outros'],
   });
 
@@ -80,6 +81,7 @@
         if (typeof v === 'object' && !Array.isArray(v)) d[k] = Object.assign(d[k], v);
       }
     }
+    if (typeof s.openingBalance === 'number' && Number.isFinite(s.openingBalance)) d.openingBalance = Math.round(s.openingBalance);
     if (s.active && typeof s.active === 'object' && Array.isArray(s.active.entries)) d.active = s.active;
     if (!Array.isArray(d.kanban.columns) || !d.kanban.columns.length) d.kanban.columns = defaults().kanban.columns;
     if (!Array.isArray(d.kanban.tasks)) d.kanban.tasks = [];

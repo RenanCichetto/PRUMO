@@ -97,6 +97,8 @@
     if (changed) P.save();
   }
 
+  P.materializeExpenses = materialize;
+
   const ofMonth = (k) => st().expenses.filter((e) => String(e.date).startsWith(k));
   const sum = (arr, kind) => arr.filter((e) => e.kind === kind).reduce((n, e) => n + e.amount, 0);
 
