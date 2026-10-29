@@ -55,12 +55,12 @@
     const cols = kb().columns;
     if (!cols.some((c) => c.id === sel)) sel = cols[0].id;
     const seg = cols
-      .map((c) => `<button data-act="t-col" data-id="${esc(c.id)}" class="${c.id === sel ? 'on' : ''}">${esc(c.name)} · ${kb().tasks.filter((t) => t.col === c.id).length}</button>`)
+      .map((c) => `<button data-act="t-col" data-id="${esc(c.id)}" class="${c.id === sel ? 'on' : ''}"><span>${esc(c.name)}</span><small>${kb().tasks.filter((t) => t.col === c.id).length}</small></button>`)
       .join('');
     const idx = colIndex(sel);
     const tasks = kb().tasks.filter((t) => t.col === sel);
     return (
-      `<div class="seg">${seg}</div>` +
+      `<div class="seg fill">${seg}</div>` +
       '<div class="row" style="margin-bottom:12px">' +
       `<input type="text" data-in="t-new" data-enter="t-add" placeholder="Nova tarefa em “${esc(cols[idx].name)}”" value="${esc(newText)}">` +
       '<button class="accent" data-act="t-add">+</button></div>' +

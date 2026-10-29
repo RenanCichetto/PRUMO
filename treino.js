@@ -67,6 +67,7 @@
   function setDock(mode) {
     if (mode === dockMode) return;
     dockMode = mode;
+    document.body.classList.toggle('has-dock', mode !== 'none');
     const d = $('#dock');
     if (mode === 'none') {
       d.hidden = true;

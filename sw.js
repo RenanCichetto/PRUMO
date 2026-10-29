@@ -1,6 +1,6 @@
 // Service worker do Prumo: guarda o app no aparelho para abrir sem internet.
 // Ao mudar qualquer arquivo do app, aumente o número da versão abaixo.
-const VERSION = 'prumo-v3';
+const VERSION = 'prumo-v4';
 const FILES = [
   './',
   './index.html',

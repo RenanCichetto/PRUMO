@@ -8,12 +8,13 @@
   let openId = null; // nota aberta para edição
 
   const lines = (n) => String(n.text || '').split('\n').map((l) => l.trim()).filter(Boolean);
-  const titleOf = (n) => (lines(n)[0] || 'Nota vazia').slice(0, 70);
-  const previewOf = (n) => lines(n).slice(1).join(' · ').slice(0, 90);
+  const custom = (n) => String(n.title || '').trim();
+  const titleOf = (n) => (custom(n) || lines(n)[0] || 'Nota vazia').slice(0, 70);
+  const previewOf = (n) => (custom(n) ? lines(n) : lines(n).slice(1)).join(' · ').slice(0, 90);
 
   function closeNote() {
     const n = st().notes.find((x) => x.id === openId);
-    if (n && !String(n.text || '').trim()) st().notes = st().notes.filter((x) => x.id !== openId);
+    if (n && !String(n.text || '').trim() && !custom(n)) st().notes = st().notes.filter((x) => x.id !== openId);
     openId = null;
     P.save();
   }
@@ -27,7 +28,7 @@
           notes
             .map(
               (n) =>
-                `<button class="note-item" data-act="n-open" data-id="${esc(n.id)}" data-text="${esc(String(n.text || '').toLowerCase())}">` +
+                `<button class="note-item" data-act="n-open" data-id="${esc(n.id)}" data-text="${esc((String(n.title || '') + ' ' + String(n.text || '')).toLowerCase())}">` +
                 `<b>${esc(titleOf(n))}</b><span class="muted">${esc(previewOf(n) || P.ago(n.updatedAt))}</span></button>`
             )
             .join('')
@@ -41,7 +42,8 @@
     return (
       '<div class="row between" style="margin:8px 0 10px"><span class="muted">Editado ' + esc(P.ago(n.updatedAt)) + '</span>' +
       '<button class="danger small" data-act="n-del">Excluir</button></div>' +
-      `<textarea data-in="n-text" placeholder="Escreva aqui. A primeira linha vira o título.">${esc(n.text || '')}</textarea>`
+      `<input type="text" data-in="n-title" placeholder="Título da nota (opcional)" value="${esc(n.title || '')}" style="margin-bottom:10px;font-weight:700">` +
+      `<textarea data-in="n-text" placeholder="Escreva aqui. Sem título, a primeira linha é usada como título.">${esc(n.text || '')}</textarea>`
     );
   }
 
@@ -64,12 +66,12 @@
     act(name, el) {
       switch (name) {
         case 'n-new': {
-          const n = { id: uid(), text: '', createdAt: Date.now(), updatedAt: Date.now() };
+          const n = { id: uid(), title: '', text: '', createdAt: Date.now(), updatedAt: Date.now() };
           st().notes.push(n);
           openId = n.id;
           P.save();
           P.render();
-          const t = P.$('textarea[data-in="n-text"]');
+          const t = P.$('[data-in="n-title"]');
           if (t) t.focus();
           return true;
         }
@@ -87,6 +89,15 @@
     },
     input(el) {
       const k = el.dataset.in;
+      if (k === 'n-title') {
+        const n = st().notes.find((x) => x.id === openId);
+        if (n) {
+          n.title = el.value;
+          n.updatedAt = Date.now();
+          P.save();
+        }
+        return true;
+      }
       if (k === 'n-text') {
         const n = st().notes.find((x) => x.id === openId);
         if (n) {

@@ -62,6 +62,7 @@
     },
     notes: [],
     expenses: [],
+    recurring: [],
     expenseCats: ['Alimentação', 'Transporte', 'Moradia', 'Saúde', 'Lazer', 'Educação', 'Compras', 'Contas', 'Outros'],
   });
 
@@ -138,6 +139,10 @@
       ? m.tabs.map(([id, l]) => `<button data-tab="${id}" class="${id === ui.tab ? 'on' : ''}">${P.esc(l)}</button>`).join('')
       : '';
     document.body.classList.toggle('has-tabs', tabs);
+    const foot = P.$('#foot');
+    const fh = !ov && m && m.footer ? m.footer(ui.tab) : '';
+    foot.hidden = !fh;
+    foot.innerHTML = fh || '';
     P.hooks.render.forEach((f) => f());
   };
 

@@ -13,8 +13,11 @@
     ['Jantar', '20:00'],
   ];
 
-  let draft = null; // refeição em edição: { id, name, time, desc }
-  const blank = () => ({ id: null, name: '', time: '', desc: '' });
+  let draft = null; // refeição em edição: { id, name, time, kcal, desc }
+  const blank = () => ({ id: null, name: '', time: '', kcal: '', desc: '' });
+  const kcalOf = (m) => Math.max(0, Number(m.kcal) || 0);
+  const fmtN = (n) => n.toLocaleString('pt-BR');
+  const meta = (m) => [kcalOf(m) ? `${fmtN(kcalOf(m))} kcal` : '', m.time || ''].filter(Boolean).join(' · ');
 
   const sorted = () => st().meals.slice().sort((a, b) => (a.time || '99:99').localeCompare(b.time || '99:99'));
   const logOf = (day) => st().mealLog[day] || {};
@@ -38,7 +41,7 @@
       .map((m) => {
         const s = log[m.id];
         return (
-          `<div class="card"><div class="row between"><b>${esc(m.name)}</b><span class="muted">${esc(m.time || '')}</span></div>` +
+          `<div class="card"><div class="row between"><b>${esc(m.name)}</b><span class="muted">${esc(meta(m))}</span></div>` +
           (m.desc ? `<div class="muted" style="margin:4px 0 8px">${esc(m.desc)}</div>` : '<div style="height:8px"></div>') +
           `<div class="row"><button class="opt${s === 'ok' ? ' on' : ''}" data-act="a-mark" data-id="${esc(m.id)}" data-s="ok">Segui</button>` +
           `<button class="opt${s === 'off' ? ' on out' : ''}" data-act="a-mark" data-id="${esc(m.id)}" data-s="off">Fugi do plano</button></div></div>`
@@ -75,6 +78,8 @@
       `<input type="text" data-in="a-name" placeholder="Ex.: Almoço" value="${esc(draft ? draft.name : '')}">` +
       '<label class="f">Horário</label>' +
       `<input type="time" data-in="a-time" value="${esc(draft ? draft.time : '')}">` +
+      '<label class="f">Calorias da refeição (kcal, opcional)</label>' +
+      `<input type="text" inputmode="numeric" data-in="a-kcal" placeholder="Ex.: 450" value="${esc(draft ? draft.kcal : '')}">` +
       '<label class="f">O que comer (opcional)</label>' +
       `<input type="text" data-in="a-desc" placeholder="Ex.: Arroz, feijão, frango e salada" value="${esc(draft ? draft.desc : '')}">` +
       '<div class="row" style="margin-top:14px">' +
@@ -85,7 +90,7 @@
       ? meals
           .map(
             (m) =>
-              `<div class="card"><div class="row between"><b>${esc(m.name)}</b><span class="muted">${esc(m.time || '')}</span></div>` +
+              `<div class="card"><div class="row between"><b>${esc(m.name)}</b><span class="muted">${esc(meta(m))}</span></div>` +
               (m.desc ? `<div class="muted" style="margin:4px 0">${esc(m.desc)}</div>` : '') +
               `<div class="row" style="margin-top:8px"><button class="small" data-act="a-edit" data-id="${esc(m.id)}">Editar</button>` +
               `<button class="danger small" data-act="a-del" data-id="${esc(m.id)}">Excluir</button></div></div>`
@@ -112,6 +117,22 @@
       if (tab === 'plano') return viewPlano();
       return viewHoje();
     },
+    // barra fixa embaixo: soma das calorias das refeições marcadas como "Segui" hoje
+    footer(tab) {
+      if (tab === 'plano' || !st().meals.length) return '';
+      const log = logOf(P.dayStr());
+      const eaten = st().meals.filter((m) => log[m.id] === 'ok').reduce((n, m) => n + kcalOf(m), 0);
+      const plan = st().meals.reduce((n, m) => n + kcalOf(m), 0);
+      const pct = plan ? Math.min(100, Math.round((eaten / plan) * 100)) : 0;
+      return (
+        `<div class="row between"><div><div class="lbl">Calorias de hoje</div><div class="time">${fmtN(eaten)} kcal</div></div>` +
+        (plan
+          ? `<span class="muted">de ${fmtN(plan)} kcal do plano</span>`
+          : '<span class="muted">Sem calorias no plano</span>') +
+        '</div>' +
+        (plan ? `<div class="bar" style="margin-top:8px"><i style="width:${pct}%"></i></div>` : '')
+      );
+    },
     act(name, el) {
       switch (name) {
         case 'a-mark': {
@@ -128,7 +149,14 @@
         case 'a-save': {
           const name2 = (draft.name || '').trim();
           if (!name2) return alert('Dê um nome à refeição.'), true;
-          const item = { id: draft.id || uid(), name: name2, time: draft.time || '', desc: (draft.desc || '').trim() };
+          const item = {
+            id: draft.id || uid(),
+            name: name2,
+            time: draft.time || '',
+            // calorias são inteiras: "1.200" e "1200" valem 1200 (o ponto é separador de milhar)
+            kcal: Math.max(0, parseInt(String(draft.kcal || '').split(',')[0].replace(/\D/g, ''), 10) || 0),
+            desc: (draft.desc || '').trim(),
+          };
           const i = st().meals.findIndex((m) => m.id === item.id);
           if (i >= 0) st().meals[i] = item;
           else st().meals.push(item);
@@ -139,7 +167,7 @@
         }
         case 'a-edit': {
           const m = st().meals.find((x) => x.id === el.dataset.id);
-          if (m) draft = { ...m };
+          if (m) draft = { ...m, kcal: kcalOf(m) ? String(kcalOf(m)) : '' };
           P.render();
           window.scrollTo(0, document.body.scrollHeight);
           return true;
@@ -165,6 +193,7 @@
       if (!k || !k.startsWith('a-') || !draft) return false;
       if (k === 'a-name') draft.name = el.value;
       else if (k === 'a-time') draft.time = el.value;
+      else if (k === 'a-kcal') draft.kcal = el.value;
       else if (k === 'a-desc') draft.desc = el.value;
       return true;
     },

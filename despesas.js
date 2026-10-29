@@ -1,6 +1,7 @@
 // Prumo — controle financeiro de despesas e receitas
 // Cada lançamento já guarda "source" e "externalId", para no futuro receber lançamentos vindos de bancos
 // sem mudar a estrutura (valores em centavos, para não ter erro de arredondamento).
+// Lançamentos recorrentes: um modelo (recurring) gera os lançamentos sozinho a cada período.
 (() => {
   'use strict';
   const P = window.Prumo;
@@ -8,11 +9,26 @@
   const st = () => P.state;
 
   const INCOME_CATS = ['Salário', 'Rendimentos', 'Outras receitas'];
+  const PERIODS = [
+    ['day', 'Dia'],
+    ['week', 'Semana'],
+    ['month', 'Mês'],
+    ['year', 'Ano'],
+  ];
+  const EVERY = { day: 'a cada dia', week: 'a cada semana', month: 'a cada mês', year: 'a cada ano' };
 
   let month = P.dayStr().slice(0, 7); // 'AAAA-MM'
-  let form = null; // { kind, amount, desc, cat, date }
+  let form = null; // { kind, amount, desc, cat, date, rec, period }
 
-  const blank = () => ({ kind: 'out', amount: '', desc: '', cat: st().expenseCats[0] || 'Outros', date: P.dayStr() });
+  const blank = () => ({
+    kind: 'out',
+    amount: '',
+    desc: '',
+    cat: st().expenseCats[0] || 'Outros',
+    date: P.dayStr(),
+    rec: false,
+    period: 'month',
+  });
 
   const monthLabel = (k) => {
     const [y, m] = k.split('-').map(Number);
@@ -24,6 +40,7 @@
     const d = new Date(y, m - 1 + n, 1);
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
   };
+  const brDate = (s) => `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(0, 4)}`;
 
   // "1.234,56" -> 123456 | "12,5" -> 1250 | "12.5" -> 1250
   const toCents = (v) => {
@@ -34,9 +51,51 @@
     return Number.isFinite(n) ? Math.round(n * 100) : 0;
   };
 
+  // ---------- recorrência ----------
+  // próxima data depois de "dateStr": mês e ano mantêm o dia original (ex.: dia 31 vira 30 ou 28 quando preciso)
+  function addPeriod(dateStr, period, anchor) {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    let dt;
+    if (period === 'day') dt = new Date(y, m - 1, d + 1);
+    else if (period === 'week') dt = new Date(y, m - 1, d + 7);
+    else {
+      const first = new Date(y, m - 1 + (period === 'year' ? 12 : 1), 1);
+      const last = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
+      dt = new Date(first.getFullYear(), first.getMonth(), Math.min(anchor || d, last));
+    }
+    return P.dayStr(dt);
+  }
+
+  // cria os lançamentos que já venceram (até hoje); roda sempre que a tela de despesas é montada
+  function materialize() {
+    const today = P.dayStr();
+    let changed = false;
+    st().recurring.forEach((r) => {
+      let guard = 0;
+      while (r.next <= today && guard++ < 800) {
+        st().expenses.push({
+          id: uid(),
+          kind: r.kind,
+          amount: r.amount,
+          date: r.next,
+          desc: r.desc,
+          cat: r.cat,
+          source: 'recorrente',
+          externalId: null,
+          recurringId: r.id,
+          createdAt: Date.now(),
+        });
+        r.next = addPeriod(r.next, r.period, r.anchor);
+        changed = true;
+      }
+    });
+    if (changed) P.save();
+  }
+
   const ofMonth = (k) => st().expenses.filter((e) => String(e.date).startsWith(k));
   const sum = (arr, kind) => arr.filter((e) => e.kind === kind).reduce((n, e) => n + e.amount, 0);
 
+  // ---------- telas ----------
   function viewMes() {
     const list = ofMonth(month).sort((a, b) => b.date.localeCompare(a.date) || (b.createdAt || 0) - (a.createdAt || 0));
     const out = sum(list, 'out');
@@ -75,7 +134,7 @@
               (e) =>
                 '<div class="card"><div class="row">' +
                 `<div class="grow"><div>${esc(e.desc || e.cat || '')}</div>` +
-                `<div class="muted">${esc(e.date.slice(8, 10))}/${esc(e.date.slice(5, 7))} · ${esc(e.cat || '')}</div></div>` +
+                `<div class="muted">${esc(e.date.slice(8, 10))}/${esc(e.date.slice(5, 7))} · ${esc(e.cat || '')}${e.recurringId ? ' · recorrente' : ''}</div></div>` +
                 `<span class="amt ${e.kind === 'in' ? 'pos' : ''}">${e.kind === 'in' ? '+' : '−'} ${P.brl(e.amount)}</span>` +
                 `<button class="danger small" data-act="d-del" data-id="${esc(e.id)}" aria-label="Excluir lançamento">✕</button></div></div>`
             )
@@ -100,9 +159,40 @@
       '<select data-in="d-cat">' +
       cats.map((c) => `<option${c === form.cat ? ' selected' : ''}>${esc(c)}</option>`).join('') +
       '</select>' +
-      '<label class="f">Data</label>' +
+      `<label class="f">${form.rec ? 'Data do primeiro lançamento' : 'Data'}</label>` +
       `<input type="date" data-in="d-date" value="${esc(form.date)}">` +
-      '<button class="primary block" style="margin-top:16px" data-act="d-save">Lançar</button>'
+      '<label class="f">Tipo</label>' +
+      '<div class="row">' +
+      `<button class="opt${form.rec ? '' : ' on'}" data-act="d-rec" data-v="0">Eventual</button>` +
+      `<button class="opt${form.rec ? ' on' : ''}" data-act="d-rec" data-v="1">Recorrente</button></div>` +
+      (form.rec
+        ? '<label class="f">Repetir a cada</label>' +
+          '<select data-in="d-period">' +
+          PERIODS.map(([v, l]) => `<option value="${v}"${form.period === v ? ' selected' : ''}>${l}</option>`).join('') +
+          '</select>' +
+          '<p class="muted" style="margin:8px 0 0">Os próximos lançamentos entram sozinhos nas datas seguintes, e você acompanha ou para na aba Recorrentes.</p>'
+        : '') +
+      `<button class="primary block" style="margin-top:16px" data-act="d-save">${form.rec ? 'Criar recorrente' : 'Lançar'}</button>`
+    );
+  }
+
+  function viewRec() {
+    const list = st().recurring.slice().sort((a, b) => a.next.localeCompare(b.next));
+    return (
+      '<h2 style="margin:8px 0">Recorrentes</h2>' +
+      (list.length
+        ? list
+            .map(
+              (r) =>
+                '<div class="card"><div class="row">' +
+                `<div class="grow"><div>${esc(r.desc || r.cat || '')}</div>` +
+                `<div class="muted">${esc(EVERY[r.period] || '')} · próximo em ${esc(brDate(r.next))}</div>` +
+                `<div class="muted">${esc(r.cat || '')}</div></div>` +
+                `<span class="amt ${r.kind === 'in' ? 'pos' : ''}">${r.kind === 'in' ? '+' : '−'} ${P.brl(r.amount)}</span></div>` +
+                `<button class="danger small" style="margin-top:10px" data-act="d-recdel" data-id="${esc(r.id)}">Parar recorrência</button></div>`
+            )
+            .join('')
+        : '<div class="empty">Nenhum lançamento recorrente.<br>Em Lançar, escolha o tipo Recorrente.</div>')
     );
   }
 
@@ -112,17 +202,20 @@
     tabs: [
       ['mes', 'Mês'],
       ['lancar', 'Lançar'],
+      ['rec', 'Recorrentes'],
     ],
     onEnter() {
       form = null;
       month = P.dayStr().slice(0, 7);
     },
     status() {
+      materialize();
       const out = sum(ofMonth(P.dayStr().slice(0, 7)), 'out');
       return out ? `${P.brl(out)} no mês` : 'Sem gastos no mês';
     },
     view(tab) {
-      return tab === 'lancar' ? viewLancar() : viewMes();
+      materialize();
+      return tab === 'lancar' ? viewLancar() : tab === 'rec' ? viewRec() : viewMes();
     },
     act(name, el) {
       switch (name) {
@@ -134,11 +227,36 @@
           form.cat = (form.kind === 'in' ? INCOME_CATS : st().expenseCats)[0];
           P.render();
           return true;
+        case 'd-rec':
+          if (!form) form = blank();
+          form.rec = el.dataset.v === '1';
+          P.render();
+          return true;
         case 'd-save': {
           if (!form) return true;
           const amount = toCents(form.amount);
           if (amount <= 0) return alert('Informe um valor maior que zero.'), true;
           if (!form.date) return alert('Escolha a data.'), true;
+          if (form.rec) {
+            st().recurring.push({
+              id: uid(),
+              kind: form.kind,
+              amount,
+              desc: form.desc.trim(),
+              cat: form.cat,
+              period: form.period,
+              anchor: Number(form.date.slice(8, 10)),
+              next: form.date,
+              createdAt: Date.now(),
+            });
+            materialize();
+            month = P.dayStr().slice(0, 7);
+            form = null;
+            P.save();
+            P.go({ tab: 'rec' });
+            window.scrollTo(0, 0);
+            return true;
+          }
           st().expenses.push({
             id: uid(),
             kind: form.kind,
@@ -164,6 +282,13 @@
             P.render();
           }
           return true;
+        case 'd-recdel':
+          if (confirm('Parar esta recorrência? Os lançamentos que já entraram continuam no histórico.')) {
+            st().recurring = st().recurring.filter((r) => r.id !== el.dataset.id);
+            P.save();
+            P.render();
+          }
+          return true;
       }
       return false;
     },
@@ -174,6 +299,7 @@
       else if (k === 'd-desc') form.desc = el.value;
       else if (k === 'd-cat') form.cat = el.value;
       else if (k === 'd-date') form.date = el.value;
+      else if (k === 'd-period') form.period = el.value;
       return true;
     },
   });

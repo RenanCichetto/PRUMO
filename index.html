@@ -17,10 +17,18 @@
 <body>
 <header id="top">
   <button id="back" data-act="back" aria-label="Voltar" hidden>‹</button>
-  <h1>Prumo</h1>
-  <span id="sub"></span>
+  <div id="brand">
+    <svg id="logo" viewBox="0 0 24 24" width="30" height="30" fill="none" stroke-linecap="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="8" stroke="#E8B64A" stroke-width="1.8"/>
+      <path d="M2.5 12h6.6M14.9 12h6.6" stroke="#E8B64A" stroke-width="1.8"/>
+      <circle cx="12" cy="12" r="2.3" fill="#3FB8AF"/>
+    </svg>
+    <h1>Prumo</h1>
+  </div>
+  <div id="sub"></div>
 </header>
 <main id="view"></main>
+<div id="foot" hidden></div>
 <div id="dock" hidden></div>
 <nav id="tabs" hidden></nav>
 <script src="core.js"></script>
